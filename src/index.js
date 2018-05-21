@@ -14,40 +14,32 @@ const request = requestFactory({
   // activates [cheerio](https://cheerio.js.org/) parsing on each page
   cheerio: true,
   // If cheerio is activated do not forget to deactivate json parsing (which is activated by
-  // default in cozy-konnector-libs
+  // default in cozy-konnector-libs)
   json: false,
   // this allows request-promise to keep cookies between requests
   jar: true
 })
 
 const baseUrl = 'https://www.service.eau.veolia.fr'
-const vendor = 'veolia-eau'
+const vendor = 'veolia'
 
 module.exports = new BaseKonnector(start)
 
-// The start function is run by the BaseKonnector instance only when it got all the account
-// information (fields). When you run this connector yourself in "standalone" mode or "dev" mode,
-// the account information come from ./konnector-dev-config.json file
 async function start(fields) {
   log('info', 'Authenticating ...')
   await authenticate(fields.login, fields.password)
   log('info', 'Successfully logged in')
 
-  // Several contracts can be attached to a same account, each contract having
-  // its own set of invoices.
-  log('info', 'Fetching the list of contracts')
+  // Several contracts can be attached to the same account, each contract having
+  // its own set of bills.
+  log('info', 'Fetching list of contracts')
   const contractsPaths = await getContractsPaths()
 
-  log('info', 'Fetching the bills')
+  log('info', 'Fetching bills')
   const bills = await fetchAllBills(contractsPaths)
 
-  // here we use the saveBills function even if what we fetch are not bills, but this is the most
-  // common case in connectors
   log('info', 'Saving data to Cozy')
   await saveBills(bills, fields.folderPath, {
-    // this is a bank identifier which will be used to link bills to bank operations. These
-    // identifiers should be at least a word found in the title of a bank operation related to this
-    // bill. It is not case sensitive.
     identifiers: [vendor]
   })
 }
@@ -102,7 +94,7 @@ async function fetchBillsForContract(contractPath) {
     // We are interested in the 'xxxxxxx' part.
     .split('idContrat=')[1]
     // The first two number of the 'xxxxxxx' are not included in the contract
-    // reference number displayed so we remove them.
+    // reference number, so we remove them.
     .slice(2)
 
   return scrape(
@@ -138,6 +130,8 @@ async function fetchBillsForContract(contractPath) {
   })
 }
 
+// CAVEAT: not all "bills" have an amount associated, as some are not
+// technically bills but regular mails or notices.
 async function fetchAllBills(contractsPaths) {
   const bills = []
 
@@ -145,26 +139,37 @@ async function fetchAllBills(contractsPaths) {
     Array.prototype.push.apply(bills, await fetchBillsForContract(contractPath))
   }
 
-  return bills.filter(bill => bill.type === 'Facture').map(bill => ({
-    ...bill,
-    currency: '€',
-    fileurl: `${baseUrl}${bill.billPath}`,
-    vendor,
-    filename: `${bill.refContract}-${formatDate(bill.date)}-${
-      bill.billNumber
-    }-${bill.amount}EUR.pdf`,
-    metadata: {
-      importDate: new Date(),
-      version: 1
+  return bills.map(bill => {
+    let filename = `${formatDate(bill.date)}-${vendor.toUpperCase()}-${bill.refContract}-${bill.type}`
+    if (bill.type === 'Facture') {
+      // Some bills have a negative amount, I think its clearer to add an
+      // underscore here.
+      filename += `_${bill.amount}EUR`
     }
-  }))
+    filename += ".pdf"
+
+    return {
+      ...bill,
+      currency: '€',
+      fileurl: `${baseUrl}${bill.billPath}`,
+      filename,
+      vendor,
+      metadata: {
+        importDate: new Date(),
+        version: 1
+      }
+    }
+  })
 }
 
+// "Parse" the date found in the bill page and return a JavaScript Date object.
 function normalizeDate(date) {
   const customDate = date.split('-')
   return new Date(`${customDate[2]}-${customDate[1]}-${customDate[0]}`)
 }
 
+// Return a string representation of the date that follows this format:
+// "YYYY-MM-DD". Leading "0" for the day and the month are added if needed.
 function formatDate(date) {
   let month = date.getMonth() + 1
   if (month < 10) {
