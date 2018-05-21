@@ -140,13 +140,15 @@ async function fetchAllBills(contractsPaths) {
   }
 
   return bills.map(bill => {
-    let filename = `${formatDate(bill.date)}-${vendor.toUpperCase()}-${bill.refContract}-${bill.type}`
+    let filename = `${formatDate(bill.date)}-${vendor.toUpperCase()}-${
+      bill.refContract
+    }-${bill.type}`
     if (bill.type === 'Facture') {
       // Some bills have a negative amount, I think its clearer to add an
       // underscore here.
       filename += `_${bill.amount}EUR`
     }
-    filename += ".pdf"
+    filename += '.pdf'
 
     return {
       ...bill,
