@@ -166,8 +166,8 @@ async function fetchAllBills(contractsPaths) {
 
 // "Parse" the date found in the bill page and return a JavaScript Date object.
 function normalizeDate(date) {
-  const customDate = date.split('-')
-  return new Date(`${customDate[2]}-${customDate[1]}-${customDate[0]}`)
+  const [day, month, year] = date.split('-')
+  return new Date(`${year}-${month}-${day}`)
 }
 
 // Return a string representation of the date that follows this format:
