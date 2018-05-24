@@ -20,6 +20,10 @@ const request = requestFactory({
   jar: true
 })
 
+process.env.SENTRY_DSN =
+  process.env.SENTRY_DSN ||
+  'https://d93531893f77451baaf5b5547edc8429:6654060edee54f19aa8842f790c8bbb1@sentry.cozycloud.cc/55'
+
 const baseUrl = 'https://www.service.eau.veolia.fr'
 const vendor = 'veolia'
 
