@@ -6,6 +6,7 @@ const {
   saveBills,
   log
 } = require('cozy-konnector-libs')
+
 const request = requestFactory({
   // the debug mode shows all the details about http request and responses. Very usefull for
   // debugging but very verbose. That is why it is commented out by default
@@ -13,56 +14,59 @@ const request = requestFactory({
   // activates [cheerio](https://cheerio.js.org/) parsing on each page
   cheerio: true,
   // If cheerio is activated do not forget to deactivate json parsing (which is activated by
-  // default in cozy-konnector-libs
+  // default in cozy-konnector-libs)
   json: false,
   // this allows request-promise to keep cookies between requests
   jar: true
 })
 
-const baseUrl = 'http://books.toscrape.com'
+const baseUrl = 'https://www.service.eau.veolia.fr'
+const vendor = 'veolia'
 
 module.exports = new BaseKonnector(start)
 
-// The start function is run by the BaseKonnector instance only when it got all the account
-// information (fields). When you run this connector yourself in "standalone" mode or "dev" mode,
-// the account information come from ./konnector-dev-config.json file
 async function start(fields) {
   log('info', 'Authenticating ...')
   await authenticate(fields.login, fields.password)
   log('info', 'Successfully logged in')
-  // The BaseKonnector instance expects a Promise as return of the function
-  log('info', 'Fetching the list of documents')
-  const $ = await request(`${baseUrl}/index.html`)
-  // cheerio (https://cheerio.js.org/) uses the same api as jQuery (http://jquery.com/)
-  log('info', 'Parsing list of documents')
-  const documents = await parseDocuments($)
 
-  // here we use the saveBills function even if what we fetch are not bills, but this is the most
-  // common case in connectors
+  // Several contracts can be attached to the same account, each contract having
+  // its own set of bills.
+  log('info', 'Fetching list of contracts')
+  const contractsPaths = await getContractsPaths()
+
+  log('info', 'Fetching bills')
+  const bills = await fetchAllBills(contractsPaths)
+
   log('info', 'Saving data to Cozy')
-  await saveBills(documents, fields.folderPath, {
-    // this is a bank identifier which will be used to link bills to bank operations. These
-    // identifiers should be at least a word found in the title of a bank operation related to this
-    // bill. It is not case sensitive.
-    identifiers: ['books']
+  await saveBills(bills, fields.folderPath, {
+    identifiers: [vendor]
   })
 }
 
-// this shows authentication using the [signin function](https://github.com/konnectors/libs/blob/master/packages/cozy-konnector-libs/docs/api.md#module_signin)
-// even if this in another domain here, but it works as an example
-function authenticate(username, password) {
+async function authenticate(username, password) {
+  const url = `${baseUrl}/home.html`
+  // In order to accept a login request at least one of the two cookies are
+  // needed: 'JSESSIONID' and 'AWSELB'.
+  // If none are set then there is a redirection to the "create an account"
+  // page.
+  const $ = await request(url)
+  // We also need to extract the token located in a hidden field of the form.
+  const token = $("input[name='token']").attr('value')
+
   return signin({
-    url: `http://quotes.toscrape.com/login`,
-    formSelector: 'form',
-    formData: { username, password },
-    // the validate function will check if
+    url,
+    formSelector: '#loginBoxform_identification',
+    formData: {
+      token,
+      veolia_username: username,
+      veolia_password: password,
+      login: 'OK'
+    },
     validate: (statusCode, $) => {
-      // The login in toscrape.com always works excepted when no password is set
-      if ($(`a[href='/logout']`).length === 1) {
+      if ($(`.block-deconnecte`).length === 1) {
         return true
       } else {
-        // cozy-konnector-libs has its own logging function which format these logs with colors in
-        // standalone and dev mode and as JSON in production mode
         log('error', $('.error').text())
         return false
       }
@@ -70,58 +74,116 @@ function authenticate(username, password) {
   })
 }
 
-// The goal of this function is to parse a html page wrapped by a cheerio instance
-// and return an array of js objects which will be saved to the cozy by saveBills (https://github.com/konnectors/libs/blob/master/packages/cozy-konnector-libs/docs/api.md#savebills)
-function parseDocuments($) {
-  // you can find documentation about the scrape function here :
-  // https://github.com/konnectors/libs/blob/master/packages/cozy-konnector-libs/docs/api.md#scrape
-  const docs = scrape(
-    $,
-    {
-      title: {
-        sel: 'h3 a',
-        attr: 'title'
-      },
-      amount: {
-        sel: '.price_color',
-        parse: normalizePrice
-      },
-      url: {
-        sel: 'h3 a',
-        attr: 'title',
-        parse: url => `${baseUrl}/${url}`
-      },
-      fileurl: {
-        sel: 'img',
-        attr: 'src',
-        parse: src => `${baseUrl}/${src}`
-      },
-      filename: {
-        sel: 'h3 a',
-        attr: 'title',
-        parse: title => `${title}.jpg`
-      }
-    },
-    'article'
+async function getContractsPaths() {
+  const $ = await request(
+    `${baseUrl}/home/espace-client/vos-factures-et-correspondances.html`
   )
-  return docs.map(doc => ({
-    ...doc,
-    // the saveBills function needs a date field
-    // even if it is a little artificial here (these are not real bills)
-    date: new Date(),
-    currency: '€',
-    vendor: 'template',
-    metadata: {
-      // it can be interesting that we add the date of import. This is not mandatory but may be
-      // usefull for debugging or data migration
-      importDate: new Date(),
-      // document version, usefull for migration after change of document structure
-      version: 1
-    }
-  }))
+
+  return $('.divToggle ul li a')
+    .map(function(i, el) {
+      return $(el).attr('href')
+    })
+    .get()
 }
 
-// convert a price string to a float
-function normalizePrice(price) {
-  return parseFloat(price.replace('£', '').trim())
+async function fetchBillsForContract(contractPath) {
+  const $ = await request(`${baseUrl}${contractPath}`)
+
+  const refContract = contractPath
+    // The path has the following format: '[...].setContrat.do?idContrat=xxxxxxx'.
+    // We are interested in the 'xxxxxxx' part.
+    .split('idContrat=')[1]
+    // The first two number of the 'xxxxxxx' are not included in the contract
+    // reference number, so we remove them.
+    .slice(2)
+
+  return scrape(
+    $,
+    {
+      date: {
+        sel: 'td:nth-child(1)',
+        parse: text => text.replace(/ \/ /g, '-').trim()
+      },
+      type: {
+        sel: 'td:nth-child(2)'
+      },
+      billNumber: {
+        sel: 'td:nth-child(3)'
+      },
+      amount: {
+        sel: 'td:nth-child(4)',
+        parse: text => text.split(' € ')[0]
+      },
+      billPath: {
+        sel: 'td:nth-child(5) a',
+        attr: 'href'
+      }
+    },
+    '.liste-table table tbody tr'
+  ).map(bill => {
+    return {
+      ...bill,
+      refContract,
+      date: normalizeDate(bill.date),
+      amount: parseFloat(bill.amount)
+    }
+  })
+}
+
+// CAVEAT: not all "bills" have an amount associated, as some are not
+// technically bills but regular mails or notices.
+async function fetchAllBills(contractsPaths) {
+  const bills = []
+
+  for (let contractPath of contractsPaths) {
+    Array.prototype.push.apply(bills, await fetchBillsForContract(contractPath))
+  }
+
+  return bills.map(bill => {
+    let filename = `${formatDate(bill.date)}-${vendor.toUpperCase()}-${
+      bill.refContract
+    }-${bill.type}`
+    if (bill.type === 'Facture') {
+      // Some bills have a negative amount, I think its clearer to add an
+      // underscore here.
+      filename += `_${bill.amount}EUR`
+    }
+    filename += '.pdf'
+
+    return {
+      ...bill,
+      currency: '€',
+      fileurl: `${baseUrl}${bill.billPath}`,
+      filename,
+      vendor,
+      metadata: {
+        importDate: new Date(),
+        version: 1
+      }
+    }
+  })
+}
+
+// "Parse" the date found in the bill page and return a JavaScript Date object.
+function normalizeDate(date) {
+  const [day, month, year] = date.split('-')
+  return new Date(`${year}-${month}-${day}`)
+}
+
+// Return a string representation of the date that follows this format:
+// "YYYY-MM-DD". Leading "0" for the day and the month are added if needed.
+function formatDate(date) {
+  let month = date.getMonth() + 1
+  if (month < 10) {
+    month = '0' + month
+  }
+
+  let day = date.getDate()
+  if (day < 10) {
+    day = '0' + day
+  }
+
+  let year = date.getFullYear()
+
+  return `${year}${month}${day}`
 }
