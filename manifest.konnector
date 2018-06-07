@@ -8,7 +8,7 @@
   "source": "git://github.com/konnectors/veoliaeau.git",
   "editor": "Cozy",
   "vendor_link": "https://www.service.eau.veolia.fr/home.html",
-  "categories": ["other"],
+  "categories": ["energy"],
   "fields": {
     "login": {
       "type": "text"
