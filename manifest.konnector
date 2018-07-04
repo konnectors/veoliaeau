@@ -85,5 +85,6 @@
       }
     }
   },
+  "banksTransactionRegExp": "\\bveolia\\b",
   "manifest_version": "2"
 }
