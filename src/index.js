@@ -1,3 +1,7 @@
+process.env.SENTRY_DSN =
+  process.env.SENTRY_DSN ||
+  'https://d93531893f77451baaf5b5547edc8429:6654060edee54f19aa8842f790c8bbb1@sentry.cozycloud.cc/55'
+
 const {
   BaseKonnector,
   requestFactory,
@@ -8,21 +12,11 @@ const {
 } = require('cozy-konnector-libs')
 
 const request = requestFactory({
-  // the debug mode shows all the details about http request and responses. Very usefull for
-  // debugging but very verbose. That is why it is commented out by default
   // debug: true,
-  // activates [cheerio](https://cheerio.js.org/) parsing on each page
   cheerio: true,
-  // If cheerio is activated do not forget to deactivate json parsing (which is activated by
-  // default in cozy-konnector-libs)
   json: false,
-  // this allows request-promise to keep cookies between requests
   jar: true
 })
-
-process.env.SENTRY_DSN =
-  process.env.SENTRY_DSN ||
-  'https://d93531893f77451baaf5b5547edc8429:6654060edee54f19aa8842f790c8bbb1@sentry.cozycloud.cc/55'
 
 const baseUrl = 'https://www.service.eau.veolia.fr'
 const vendor = 'veolia'
@@ -44,8 +38,10 @@ async function start(fields) {
 
   log('info', 'Saving data to Cozy')
   await saveBills(bills, fields.folderPath, {
-    identifiers: [vendor],
-    contentType: 'application/pdf'
+    contentType: 'application/pdf',
+    linkBankOperations: false,
+    sourceAccount: this.accountId,
+    sourceAccountIdentifier: fields.login
   })
 }
 
@@ -160,11 +156,7 @@ async function fetchAllBills(contractsPaths) {
       currency: '€',
       fileurl: `${baseUrl}${bill.billPath}`,
       filename,
-      vendor,
-      metadata: {
-        importDate: new Date(),
-        version: 1
-      }
+      vendor
     }
   })
 }
