@@ -24,8 +24,10 @@ const vendor = 'veolia'
 module.exports = new BaseKonnector(start)
 
 async function start(fields) {
+  await this.deactivateAutoSuccessfulLogin()
   log('info', 'Authenticating ...')
   await authenticate(fields.login, fields.password)
+  await this.notifySuccessfulLogin()
   log('info', 'Successfully logged in')
 
   // Several contracts can be attached to the same account, each contract having
