@@ -25,9 +25,12 @@ module.exports = new BaseKonnector(start)
 
 async function start(fields) {
   await this.deactivateAutoSuccessfulLogin()
-  if (fields.log.match(/^\d{7}$/)) {
-    log('warn', "Detect account with 7 digits, it's a regional veolia website account,"
-        + " not implemented")
+  if (fields.login.match(/^\d{7}$/)) {
+    log(
+      'warn',
+      "Detect account with 7 digits, it's a regional veolia website account," +
+        ' not implemented'
+    )
     throw new Error('LOGIN_FAILED.ACCOUNT_TYPE_NOT_IMPLEMENTED')
   }
   log('info', 'Authenticating ...')
