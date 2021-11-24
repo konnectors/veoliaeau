@@ -1,6 +1,6 @@
 process.env.SENTRY_DSN =
   process.env.SENTRY_DSN ||
-  'https://d93531893f77451baaf5b5547edc8429:6654060edee54f19aa8842f790c8bbb1@sentry.cozycloud.cc/55'
+  'https://88f90fd1f0e349f69fc10c91d75a3e3d@errors.cozycloud.cc/13'
 
 const {
   BaseKonnector,
@@ -8,8 +8,12 @@ const {
   signin,
   scrape,
   saveBills,
+  cozyClient,
   log
 } = require('cozy-konnector-libs')
+
+const models = cozyClient.new.models
+const { Qualification } = models.document
 
 const request = requestFactory({
   // debug: true,
@@ -166,7 +170,13 @@ async function fetchAllBills(contractsPaths) {
       currency: '€',
       fileurl: `${baseUrl}${bill.billPath}`,
       filename,
-      vendor
+      vendor,
+      fileAttributes: {
+        metadata: {
+          carbonCopy: true,
+          qualification: Qualification.getByLabel('water_invoice')
+        }
+      }
     }
   })
 }

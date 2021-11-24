@@ -89,6 +89,11 @@
       }
     }
   },
+  "features": [
+    "CARBON_COPY",
+    "DOC_QUALIFICATION_V2",
+    "SENTRY_V2"
+  ],
   "banksTransactionRegExp": "\\bveolia\\b",
   "manifest_version": "2"
 }
