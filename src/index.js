@@ -376,7 +376,7 @@ connector.init({ additionalExposedMethodsNames: [
   'checkBillsTableLength',
   'checkBillsPage'
 ] }).catch(err => {
-  console.warn(err)
+  log.warn(err)
 })
 
 function sleep(delay) {
