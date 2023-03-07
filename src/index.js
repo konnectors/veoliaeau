@@ -13,7 +13,7 @@ class TemplateContentScript extends ContentScript {
   // PILOT //
   // ////////
   async ensureAuthenticated() {
-    this.log('Starting ensureAuthenticated')
+    this.log('debug', 'Starting ensureAuthenticated')
     const credentials = await this.getCredentials()
     if (credentials) {
       const auth = await this.authWithCredentials(credentials)
@@ -32,7 +32,7 @@ class TemplateContentScript extends ContentScript {
   }
 
   async authWithCredentials(credentials) {
-    this.log('Starting authWithCredentials')
+    this.log('debug', 'Starting authWithCredentials')
     await this.goto(BASE_URL)
     await this.waitForElementInWorker('.block-bottom-area')
     const isLogged = await this.runInWorker('checkIfLogged')
@@ -47,13 +47,13 @@ class TemplateContentScript extends ContentScript {
     if (isSuccess) {
       return true
     } else {
-      this.log('Something went wrong while autoLogin, new auth needed')
+      this.log('debug', 'Something went wrong while autoLogin, new auth needed')
       this.waitForUserAuthentication()
     }
   }
 
   async authWithoutCredentials() {
-    this.log('Starting authWithoutCredentials')
+    this.log('debug', 'Starting authWithoutCredentials')
     await this.goto(BASE_URL)
     await this.waitForElementInWorker('#veolia_username')
     await this.waitForUserAuthentication()
@@ -61,14 +61,14 @@ class TemplateContentScript extends ContentScript {
   }
 
   async waitForUserAuthentication() {
-    this.log('Starting waitForUserAuthentication')
+    this.log('debug', 'Starting waitForUserAuthentication')
     await this.setWorkerState({ visible: true })
     await this.runInWorkerUntilTrue({ method: 'waitForAuthenticated' })
     await this.setWorkerState({ visible: false })
   }
 
   async getUserDataFromWebsite() {
-    this.log('Starting getUserDataFromWebsite')
+    this.log('debug', 'Starting getUserDataFromWebsite')
     await this.clickAndWait(
       'a[href="/home/espace-client/vos-contrats.html"]',
       '.bloc_princ'
@@ -83,13 +83,13 @@ class TemplateContentScript extends ContentScript {
     if (this.store.userIdentity.email) {
       return { sourceAccountIdentifier: this.store.userIdentity.email }
     } else {
-      this.log("Couldn't get a sourceAccountIdentifier, using default")
+      this.log('debug', "Couldn't get a sourceAccountIdentifier, using default")
       return { sourceAccountIdentifier: DEFAULT_SOURCE_ACCOUNT_IDENTIFIER }
     }
   }
 
   async fetch(context) {
-    this.log('Starting fetch')
+    this.log('debug', 'Starting fetch')
     await this.runInWorker(
       'click',
       'a[href="/home/espace-client/vos-factures-et-correspondances.html"]'
@@ -132,13 +132,13 @@ class TemplateContentScript extends ContentScript {
   }
 
   async tryAutoLogin(credentials) {
-    this.log('Trying autologin')
+    this.log('debug', 'Trying autologin')
     const isSuccess = await this.autoLogin(credentials)
     return isSuccess
   }
 
   async autoLogin(credentials) {
-    this.log('Starting autologin')
+    this.log('debug', 'Starting autologin')
     const selectors = {
       email: '#veolia_username',
       password: '#veolia_password',
@@ -159,7 +159,7 @@ class TemplateContentScript extends ContentScript {
   // ////////
 
   async checkAuthenticated() {
-    this.log('Starting checkAuthenticated')
+    this.log('debug', 'Starting checkAuthenticated')
     const loginField = document.querySelector('#veolia_username')
     const passwordField = document.querySelector('#veolia_password')
     if (loginField && passwordField) {
@@ -167,7 +167,7 @@ class TemplateContentScript extends ContentScript {
         loginField,
         passwordField
       )
-      this.log('Sendin userCredentials to Pilot')
+      this.log('debug', 'Sendin userCredentials to Pilot')
       this.sendToPilot({
         userCredentials
       })
@@ -176,15 +176,15 @@ class TemplateContentScript extends ContentScript {
       document.location.href.includes(`${HOMEPAGE_URL}`) &&
       document.querySelector('.block-deconnecte')
     ) {
-      this.log('Auth Check succeeded')
+      this.log('debug', 'Auth Check succeeded')
       return true
     }
-    this.log('Not respecting condition, returning false')
+    this.log('debug', 'Not respecting condition, returning false')
     return false
   }
 
   async findAndSendCredentials(login, password) {
-    this.log('Starting findAndSendCredentials')
+    this.log('debug', 'Starting findAndSendCredentials')
     let userLogin = login.value
     let userPassword = password.value
     const userCredentials = {
@@ -195,21 +195,21 @@ class TemplateContentScript extends ContentScript {
   }
 
   checkIfLogged() {
-    this.log('Starting checkIfLogged')
+    this.log('debug', 'Starting checkIfLogged')
     const loginForm = document.querySelector('#loginBoxform_identification')
     const logoutButton = document.querySelector('.block-deconnecte')
     if (loginForm) {
-      this.log('Login form detected, new auth needed')
+      this.log('debug', 'Login form detected, new auth needed')
       return false
     }
     if (logoutButton) {
-      this.log('Still connected, continue')
+      this.log('debug', 'Still connected, continue')
       return true
     }
   }
 
   async handleForm(loginData) {
-    this.log('Starting handleForm')
+    this.log('debug', 'Starting handleForm')
     const loginElement = document.querySelector(loginData.selectors.email)
     const passwordElement = document.querySelector(loginData.selectors.password)
     const captchaButton = document.querySelector(
@@ -226,12 +226,12 @@ class TemplateContentScript extends ContentScript {
   }
 
   async checkRecaptcha() {
-    this.log('Starting checkRecaptcha')
+    this.log('debug', 'Starting checkRecaptcha')
     let captchaValue = document.querySelector(
       'input[name="frc-captcha-solution"]'
     ).value
     while (captchaValue.length < 100) {
-      this.log('Recaptcha is not finished')
+      this.log('debug', 'Recaptcha is not finished')
       await sleep(3)
       captchaValue = document.querySelector(
         'input[name="frc-captcha-solution"]'
@@ -241,7 +241,7 @@ class TemplateContentScript extends ContentScript {
   }
 
   async getUserPersonalInfos() {
-    this.log('Starting getUserPersonalInfos')
+    this.log('debug', 'Starting getUserPersonalInfos')
     const clientInfos = document.querySelectorAll('.ligne-info')
     const email = clientInfos[0].innerHTML.split(': ')[1]
     const homePhoneNumber = clientInfos[2].innerHTML.split(': ')[1]
@@ -266,7 +266,7 @@ class TemplateContentScript extends ContentScript {
   }
 
   async getUserBillingInfos() {
-    this.log('Starting getUserBillingInfos')
+    this.log('debug', 'Starting getUserBillingInfos')
     const billingInfosElements = document.querySelectorAll(
       'div[class="bloc_ct bloc_ct_1 bloc_contrat"]'
     )
@@ -295,7 +295,7 @@ class TemplateContentScript extends ContentScript {
   }
 
   async computeIdentity(store) {
-    this.log('Starting computeIdentity')
+    this.log('debug', 'Starting computeIdentity')
     const userIdentity = {
       ...store.userBillingInfos,
       ...store.userPersonalInfos
@@ -304,7 +304,7 @@ class TemplateContentScript extends ContentScript {
   }
 
   checkMoreBillsButton() {
-    this.log('Starting checkMoreBillsButton')
+    this.log('debug', 'Starting checkMoreBillsButton')
     const moreBillsButton = document.querySelector(
       'a[href="/home/espace-client/vos-factures-et-correspondances.html?voirPlus"]'
     )
@@ -313,7 +313,7 @@ class TemplateContentScript extends ContentScript {
   }
 
   async checkBillsPage(testUrl) {
-    this.log('Starting checkBillsPage')
+    this.log('debug', 'Starting checkBillsPage')
     const locationUrl = document.location.href
     const billsTable = document.querySelector('table')
     if (locationUrl === testUrl && billsTable) {
@@ -323,7 +323,7 @@ class TemplateContentScript extends ContentScript {
   }
 
   async checkBillsTableLength() {
-    this.log('Starting checkBillsTableLength')
+    this.log('debug', 'Starting checkBillsTableLength')
     // As the website load another page with a different url, but with the same composition
     // the only way other than waiting for a selector to find out when the page is ready
     // is to check if the table length had increase above the last four bills/notice loaded on previous landing.
@@ -335,7 +335,7 @@ class TemplateContentScript extends ContentScript {
   }
 
   async getDocuments() {
-    this.log('Starting getDocuments')
+    this.log('debug', 'Starting getDocuments')
     let bills = []
     let files = []
     const documentsLines = document.querySelector('tbody').children
@@ -355,7 +355,7 @@ class TemplateContentScript extends ContentScript {
   }
 
   extractDatas(document) {
-    this.log('Stating extractDatas')
+    this.log('debug', 'Stating extractDatas')
     let documentDatas = []
     const datas = document.children
     for (const data of datas) {
@@ -370,7 +370,7 @@ class TemplateContentScript extends ContentScript {
   }
 
   computeDatas(datas) {
-    this.log('Starting computeDatas')
+    this.log('debug', 'Starting computeDatas')
     const [rawDate, documentType, vendorRef, rawAmount, href] = datas
     const refContract = document.querySelector('.ref_ct').innerHTML
     const [day, month, year] = rawDate.replace(/ /g, '').split('/')
@@ -378,7 +378,7 @@ class TemplateContentScript extends ContentScript {
     const vendor = 'veolia'
     let [amount, currency] = rawAmount.split(' ')
     const computedFile = {
-      date,
+      date: new Date(date),
       documentType,
       vendorRef,
       vendor,
