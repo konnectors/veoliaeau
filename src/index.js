@@ -57,7 +57,6 @@ class TemplateContentScript extends ContentScript {
     await this.goto(BASE_URL)
     await this.waitForElementInWorker('#veolia_username')
     await this.waitForUserAuthentication()
-    await this.saveCredentials(this.store.userCredentials)
   }
 
   async waitForUserAuthentication() {
@@ -115,6 +114,9 @@ class TemplateContentScript extends ContentScript {
       await this.runInWorkerUntilTrue({ method: 'checkBillsTableLength' })
     }
     await this.runInWorker('getDocuments')
+    if (this.store.userCredentials) {
+      await this.saveCredentials(this.store.userCredentials)
+    }
     await Promise.all([
       this.saveIdentity(this.store.userIdentity),
       this.saveFiles(this.store.files, {
