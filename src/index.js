@@ -14,6 +14,14 @@ class TemplateContentScript extends ContentScript {
   // ////////
   async ensureAuthenticated() {
     this.log('debug', 'Starting ensureAuthenticated')
+    await this.goto(BASE_URL)
+    await this.waitForElementInWorker('.inside-space')
+    const isSessionActive = await this.runInWorker('checkSession')
+    if (isSessionActive) {
+      this.log('info', 'Logging out')
+      await this.runInWorker('logout')
+      await this.waitForElementInWorker('#loginBoxform_identification')
+    }
     const credentials = await this.getCredentials()
     if (credentials) {
       const auth = await this.authWithCredentials(credentials)
@@ -33,16 +41,8 @@ class TemplateContentScript extends ContentScript {
 
   async authWithCredentials(credentials) {
     this.log('debug', 'Starting authWithCredentials')
-    await this.goto(BASE_URL)
+    // await this.goto(BASE_URL)
     await this.waitForElementInWorker('.block-bottom-area')
-    const isLogged = await this.runInWorker('checkIfLogged')
-    if (isLogged) {
-      await this.runInWorker('click', 'a[href="/home/espace-client.html"]')
-      await this.waitForElementInWorker(
-        'a[href="/home/espace-client/vos-factures-et-correspondances.html"]'
-      )
-      return true
-    }
     const isSuccess = await this.tryAutoLogin(credentials)
     if (isSuccess) {
       return true
@@ -54,7 +54,7 @@ class TemplateContentScript extends ContentScript {
 
   async authWithoutCredentials() {
     this.log('debug', 'Starting authWithoutCredentials')
-    await this.goto(BASE_URL)
+    // await this.goto(BASE_URL)
     await this.waitForElementInWorker('#veolia_username')
     await this.waitForUserAuthentication()
   }
@@ -105,12 +105,16 @@ class TemplateContentScript extends ContentScript {
         'click',
         'a[href="/home/espace-client/vos-factures-et-correspondances.html?voirPlus"]'
       )
-      await this.runInWorkerUntilTrue({
-        method: 'checkBillsPage',
-        args: [
-          'https://www.service.eau.veolia.fr/home/espace-client/vos-factures-et-correspondances.html?voirPlus'
-        ]
-      })
+      // await this.goto(
+      //   'https://www.service.eau.veolia.fr/home/espace-client/vos-factures-et-correspondances.html?voirPlus'
+      // )
+      // await this.waitForElementInWorker('table')
+      // await this.runInWorkerUntilTrue({
+      //   method: 'checkBillsPage',
+      //   args: [
+      //     'https://www.service.eau.veolia.fr/home/espace-client/vos-factures-et-correspondances.html?voirPlus'
+      //   ]
+      // })
       await this.runInWorkerUntilTrue({ method: 'checkBillsTableLength' })
     }
     await this.runInWorker('getDocuments')
@@ -194,20 +198,6 @@ class TemplateContentScript extends ContentScript {
       password: userPassword
     }
     return userCredentials
-  }
-
-  checkIfLogged() {
-    this.log('debug', 'Starting checkIfLogged')
-    const loginForm = document.querySelector('#loginBoxform_identification')
-    const logoutButton = document.querySelector('.block-deconnecte')
-    if (loginForm) {
-      this.log('debug', 'Login form detected, new auth needed')
-      return false
-    }
-    if (logoutButton) {
-      this.log('debug', 'Still connected, continue')
-      return true
-    }
   }
 
   async handleForm(loginData) {
@@ -417,13 +407,33 @@ class TemplateContentScript extends ContentScript {
       return computedFile
     }
   }
+
+  checkSession() {
+    if (
+      document.querySelector('#loginBoxform_identification') &&
+      document.querySelector('.inside-space')
+    ) {
+      this.log('info', 'Found login Form, session not active')
+      return false
+    } else if (
+      document.querySelector('input[value="Déconnexion"]') &&
+      document.querySelector('.inside-space')
+    ) {
+      this.log('info', 'Logout button found, session is active')
+      return true
+    }
+  }
+
+  logout() {
+    const logoutButton = document.querySelector('input[value="Déconnexion"]')
+    logoutButton.click()
+  }
 }
 
 const connector = new TemplateContentScript()
 connector
   .init({
     additionalExposedMethodsNames: [
-      'checkIfLogged',
       'handleForm',
       'getUserPersonalInfos',
       'getUserBillingInfos',
@@ -431,7 +441,9 @@ connector
       'getDocuments',
       'checkMoreBillsButton',
       'checkBillsTableLength',
-      'checkBillsPage'
+      'checkBillsPage',
+      'checkSession',
+      'logout'
     ]
   })
   .catch(err => {
