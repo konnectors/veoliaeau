@@ -134,12 +134,12 @@ class TemplateContentScript extends ContentScript {
       this.saveIdentity(this.store.userIdentity),
       this.saveFiles(this.store.files, {
         context,
-        fileIdAttributes: ['filename'],
+        fileIdAttributes: ['vendorRef'],
         contentType: 'application/pdf'
       }),
       this.saveBills(this.store.bills, {
         context,
-        fileIdAttributes: ['filename'],
+        fileIdAttributes: ['vendorRef'],
         contentType: 'application/pdf',
         qualificationLabel: 'water_invoice'
       })
@@ -368,8 +368,10 @@ class TemplateContentScript extends ContentScript {
       const extractedDatas = await this.extractDatas(document)
       const computedFile = await this.computeDatas(extractedDatas)
       if (computedFile.documentType === 'Facture') {
+        computedFile.vendorRef = `${computedFile.vendorRef}-F`
         bills.push(computedFile)
       } else {
+        computedFile.vendorRef = `${computedFile.vendorRef}-C`
         files.push(computedFile)
       }
     }
