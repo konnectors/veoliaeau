@@ -16,7 +16,6 @@ class TemplateContentScript extends ContentScript {
     this.log('debug', 'Starting ensureAuthenticated')
     await this.goto(BASE_URL)
     await this.waitForElementInWorker('.inside-space')
-    await this.ensureNotAuthenticated()
     const authenticated = await this.runInWorker('checkAuthenticated')
     if (!authenticated) {
       this.log('info', 'Not authenticated')
@@ -27,12 +26,20 @@ class TemplateContentScript extends ContentScript {
       }
       await this.authWithoutCredentials()
     }
+    await this.runInWorker('click', 'a[href="/home/espace-client.html"]')
+    await this.waitForElementInWorker(
+      'a[href="/home/espace-client/vos-contrats.html"]'
+    )
     return true
   }
 
   async ensureNotAuthenticated() {
-    this.log('debug', 'Starting ensureNOTAuthenticated')
+    this.log('debug', 'Starting ensureNotAuthenticated')
     await this.goto(BASE_URL)
+    await Promise.race([
+      this.waitForElementInWorker('.submitButton'),
+      this.waitForElementInWorker('#veolia_username')
+    ])
     const authenticated = await this.runInWorker('checkAuthenticated')
     if (!authenticated) {
       this.log('debug', 'Not auth, returning true')
