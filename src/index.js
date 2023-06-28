@@ -32,6 +32,7 @@ class TemplateContentScript extends ContentScript {
 
   async ensureNotAuthenticated() {
     this.log('debug', 'Starting ensureNOTAuthenticated')
+    await this.goto(BASE_URL)
     const authenticated = await this.runInWorker('checkAuthenticated')
     if (!authenticated) {
       this.log('debug', 'Not auth, returning true')
