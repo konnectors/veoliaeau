@@ -1,5 +1,6 @@
 import { ContentScript } from 'cozy-clisk/dist/contentscript'
 import Minilog from '@cozy/minilog'
+import waitFor, { TimeoutError } from 'p-wait-for'
 const log = Minilog('ContentScript')
 Minilog.enable('veoliaeauCCC')
 
@@ -346,12 +347,22 @@ class TemplateContentScript extends ContentScript {
 
   async checkBillsPage(testUrl) {
     this.log('debug', 'Starting checkBillsPage')
-    const locationUrl = document.location.href
-    const billsTable = document.querySelector('table')
-    if (locationUrl === testUrl && billsTable) {
-      return true
-    }
-    return false
+
+    await waitFor(
+      () => {
+        const locationUrl = document.location.href
+        const billsTable = document.querySelector('table')
+        return locationUrl === testUrl && Boolean(billsTable)
+      },
+      {
+        interval: 1000,
+        timeout: {
+          milliseconds: 30000,
+          message: new TimeoutError(`checkBillsPage timed out after 30000ms`)
+        }
+      }
+    )
+    return true
   }
 
   async checkBillsTableLength() {
