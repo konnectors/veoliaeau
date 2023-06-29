@@ -1,5 +1,6 @@
 import { ContentScript } from 'cozy-clisk/dist/contentscript'
 import Minilog from '@cozy/minilog'
+import waitFor, { TimeoutError } from 'p-wait-for'
 const log = Minilog('ContentScript')
 Minilog.enable('veoliaeauCCC')
 
@@ -14,26 +15,47 @@ class TemplateContentScript extends ContentScript {
   // ////////
   async ensureAuthenticated() {
     this.log('debug', 'Starting ensureAuthenticated')
-    const credentials = await this.getCredentials()
-    if (credentials) {
-      const auth = await this.authWithCredentials(credentials)
-      if (auth) {
+    await this.goto(BASE_URL)
+    await this.waitForElementInWorker('.inside-space')
+    const authenticated = await this.runInWorker('checkAuthenticated')
+    if (!authenticated) {
+      this.log('info', 'Not authenticated')
+      const credentials = await this.getCredentials()
+      if (credentials) {
+        await this.authWithCredentials(credentials)
         return true
       }
-      return false
+      await this.authWithoutCredentials()
     }
-    if (!credentials) {
-      const auth = await this.authWithoutCredentials()
-      if (auth) {
-        return true
-      }
-      return false
+    await this.runInWorker('click', 'a[href="/home/espace-client.html"]')
+    await this.waitForElementInWorker(
+      'a[href="/home/espace-client/vos-contrats.html"]'
+    )
+    return true
+  }
+
+  async ensureNotAuthenticated() {
+    this.log('debug', 'Starting ensureNotAuthenticated')
+    await this.goto(BASE_URL)
+    await Promise.race([
+      this.waitForElementInWorker('.submitButton'),
+      this.waitForElementInWorker('#veolia_username')
+    ])
+    const authenticated = await this.runInWorker('checkAuthenticated')
+    if (!authenticated) {
+      this.log('debug', 'Not auth, returning true')
+      return true
     }
+    this.log('debug', 'Seems like already logged, logging out')
+    await this.clickAndWait(
+      'input[value="Déconnexion"]',
+      '#loginBoxform_identification'
+    )
+    return true
   }
 
   async authWithCredentials(credentials) {
     this.log('debug', 'Starting authWithCredentials')
-    await this.goto(BASE_URL)
     await this.waitForElementInWorker('.block-bottom-area')
     const isLogged = await this.runInWorker('checkIfLogged')
     if (isLogged) {
@@ -54,7 +76,6 @@ class TemplateContentScript extends ContentScript {
 
   async authWithoutCredentials() {
     this.log('debug', 'Starting authWithoutCredentials')
-    await this.goto(BASE_URL)
     await this.waitForElementInWorker('#veolia_username')
     await this.waitForUserAuthentication()
   }
@@ -121,12 +142,12 @@ class TemplateContentScript extends ContentScript {
       this.saveIdentity(this.store.userIdentity),
       this.saveFiles(this.store.files, {
         context,
-        fileIdAttributes: ['filename'],
+        fileIdAttributes: ['vendorRef'],
         contentType: 'application/pdf'
       }),
       this.saveBills(this.store.bills, {
         context,
-        fileIdAttributes: ['filename'],
+        fileIdAttributes: ['vendorRef'],
         contentType: 'application/pdf',
         qualificationLabel: 'water_invoice'
       })
@@ -150,6 +171,10 @@ class TemplateContentScript extends ContentScript {
     }
     await this.waitForElementInWorker(selectors.captchaButton)
     await this.runInWorker('handleForm', { selectors, credentials })
+    await this.runInWorkerUntilTrue({
+      method: 'checkRecaptcha',
+      args: [selectors]
+    })
     await this.waitForElementInWorker(
       'a[href="/home/espace-client/vos-factures-et-correspondances.html"]'
     )
@@ -164,7 +189,12 @@ class TemplateContentScript extends ContentScript {
     this.log('debug', 'Starting checkAuthenticated')
     const loginField = document.querySelector('#veolia_username')
     const passwordField = document.querySelector('#veolia_password')
-    if (loginField && passwordField) {
+    if (
+      loginField &&
+      passwordField &&
+      loginField.value !== 'Votre adresse mail' &&
+      passwordField.value !== 'Identifiant'
+    ) {
       const userCredentials = await this.findAndSendCredentials.bind(this)(
         loginField,
         passwordField
@@ -179,6 +209,10 @@ class TemplateContentScript extends ContentScript {
       document.querySelector('.block-deconnecte')
     ) {
       this.log('debug', 'Auth Check succeeded')
+      return true
+    }
+    if (document.querySelector('input[value="Déconnexion"]')) {
+      this.log('debug', 'Detect active session')
       return true
     }
     this.log('debug', 'Not respecting condition, returning false')
@@ -217,29 +251,26 @@ class TemplateContentScript extends ContentScript {
     const captchaButton = document.querySelector(
       loginData.selectors.captchaButton
     )
-    const submitButton = document
-      .querySelector(loginData.selectors.loginForm)
-      .querySelector(loginData.selectors.loginButton)
-    captchaButton.click()
-    await this.checkRecaptcha()
     loginElement.value = loginData.credentials.login
     passwordElement.value = loginData.credentials.password
-    submitButton.click()
+    captchaButton.click()
   }
 
-  async checkRecaptcha() {
+  async checkRecaptcha(selectors) {
     this.log('debug', 'Starting checkRecaptcha')
     let captchaValue = document.querySelector(
       'input[name="frc-captcha-solution"]'
     ).value
-    while (captchaValue.length < 100) {
+    if (captchaValue.length < 100) {
       this.log('debug', 'Recaptcha is not finished')
-      await sleep(3)
-      captchaValue = document.querySelector(
-        'input[name="frc-captcha-solution"]'
-      ).value
+      return false
+    } else {
+      const submitButton = document
+        .querySelector(selectors.loginForm)
+        .querySelector(selectors.loginButton)
+      submitButton.click()
+      return true
     }
-    return true
   }
 
   async getUserPersonalInfos() {
@@ -316,12 +347,22 @@ class TemplateContentScript extends ContentScript {
 
   async checkBillsPage(testUrl) {
     this.log('debug', 'Starting checkBillsPage')
-    const locationUrl = document.location.href
-    const billsTable = document.querySelector('table')
-    if (locationUrl === testUrl && billsTable) {
-      return true
-    }
-    return false
+
+    await waitFor(
+      () => {
+        const locationUrl = document.location.href
+        const billsTable = document.querySelector('table')
+        return locationUrl === testUrl && Boolean(billsTable)
+      },
+      {
+        interval: 1000,
+        timeout: {
+          milliseconds: 30000,
+          message: new TimeoutError(`checkBillsPage timed out after 30000ms`)
+        }
+      }
+    )
+    return true
   }
 
   async checkBillsTableLength() {
@@ -345,8 +386,10 @@ class TemplateContentScript extends ContentScript {
       const extractedDatas = await this.extractDatas(document)
       const computedFile = await this.computeDatas(extractedDatas)
       if (computedFile.documentType === 'Facture') {
+        computedFile.vendorRef = `${computedFile.vendorRef}-F`
         bills.push(computedFile)
       } else {
+        computedFile.vendorRef = `${computedFile.vendorRef}-C`
         files.push(computedFile)
       }
     }
@@ -431,15 +474,17 @@ connector
       'getDocuments',
       'checkMoreBillsButton',
       'checkBillsTableLength',
-      'checkBillsPage'
+      'checkBillsPage',
+      'checkRecaptcha'
     ]
   })
   .catch(err => {
     log.warn(err)
   })
 
-function sleep(delay) {
-  return new Promise(resolve => {
-    setTimeout(resolve, delay * 1000)
-  })
-}
+// Keep this here for debugging purpose
+// function sleep(delay) {
+//   return new Promise(resolve => {
+//     setTimeout(resolve, delay * 1000)
+//   })
+// }
