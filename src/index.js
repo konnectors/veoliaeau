@@ -5,44 +5,112 @@ const log = Minilog('ContentScript')
 Minilog.enable('veoliaeauCCC')
 
 const DEFAULT_SOURCE_ACCOUNT_IDENTIFIER = 'veolia eau'
-const BASE_URL = 'https://www.service.eau.veolia.fr/home.html'
+const BASE_URL = 'https://www.service.eau.veolia.fr'
+// const WEBSITE_HOME_URL = `${BASE_URL}/home.html`
+const LOGINFORM_URL = `${BASE_URL}/connexion-espace-client.html`
 const HOMEPAGE_URL =
   'https://www.service.eau.veolia.fr/home/espace-client.html#inside-space'
 
 class TemplateContentScript extends ContentScript {
+  onWorkerReady() {
+    if (
+      document.readyState === 'complete' ||
+      document.readyState === 'loaded'
+    ) {
+      this.setListeners()
+    } else {
+      window.addEventListener('DOMContentLoaded', () => {
+        this.setListeners()
+      })
+    }
+  }
+
+  onWorkerEvent({ event, payload }) {
+    this.log('info', 'onWorkerEvent starts')
+    if (event === 'loginSubmit') {
+      this.log('info', 'received loginSubmit, blocking user interactions')
+      this.blockWorkerInteractions()
+      const { login, password } = payload || {}
+      if (login && password) {
+        this.store.userCredentials = { login, password }
+      }
+    }
+  }
+
+  setListeners() {
+    this.log('debug', '📍️ setListeners starts')
+    const selectors = {
+      email: '#identifiant',
+      password: '#mot_passe',
+      loginForm: '#connexionForm',
+      loginButton: 'input[value="Me connecter"]',
+      captchaButton: '.frc-button'
+    }
+    const form = document.querySelector(selectors.loginForm)
+    if (form) {
+      const passwordField = document.querySelector(selectors.password)
+      const loginField = document.querySelector(selectors.email)
+      const submitButton = document.querySelector(selectors.loginButton)
+      if (submitButton) {
+        submitButton.addEventListener('click', () => {
+          this.log('info', 'Button click - emitting credentials')
+          const password = passwordField?.value
+          const login = loginField?.value
+          if (password && login) {
+            this.bridge.emit('workerEvent', {
+              event: 'loginSubmit',
+              payload: { login, password }
+            })
+          }
+        })
+      }
+    }
+  }
   // ////////
   // PILOT //
   // ////////
-  async ensureAuthenticated() {
+  async ensureAuthenticated({ account }) {
     this.log('info', 'Starting ensureAuthenticated')
-    await this.goto(BASE_URL)
-    await this.waitForElementInWorker('.inside-space')
+    this.bridge.addEventListener('workerEvent', this.onWorkerEvent.bind(this))
+    const credentials = await this.getCredentials()
+    if (!account || !credentials) {
+      await this.ensureNotAuthenticated()
+    }
+    if (
+      await this.evaluateInWorker(() => {
+        return !document.location.href === LOGINFORM_URL
+      })
+    ) {
+      await this.navigateToLoginForm()
+    }
     const authenticated = await this.runInWorker('checkAuthenticated')
     if (!authenticated) {
       this.log('info', 'Not authenticated')
-      const credentials = await this.getCredentials()
       if (credentials) {
         this.log('info', 'ensureAuthenticated - got credentials')
         await this.authWithCredentials(credentials)
+        this.unblockWorkerInteractions()
         return true
       }
       this.log('info', 'ensureAuthenticated - No credentials found')
       await this.authWithoutCredentials()
+      this.unblockWorkerInteractions()
     }
-    await this.runInWorker('click', 'a[href="/home/espace-client.html"]')
-    await this.waitForElementInWorker(
-      'a[href="/home/espace-client/vos-contrats.html"]'
-    )
     return true
+  }
+
+  async navigateToLoginForm() {
+    this.log('info', '📍️ navigateToLoginForm starts')
+    await this.goto(LOGINFORM_URL)
+    await Promise.race([
+      this.waitForElementInWorker('.block-deconnecte'),
+      this.waitForElementInWorker('#identifiant')
+    ])
   }
 
   async ensureNotAuthenticated() {
     this.log('info', 'Starting ensureNotAuthenticated')
-    await this.goto(BASE_URL)
-    await Promise.race([
-      this.waitForElementInWorker('.submitButton'),
-      this.waitForElementInWorker('#veolia_username')
-    ])
+    await this.navigateToLoginForm()
     const authenticated = await this.runInWorker('checkAuthenticated')
     if (!authenticated) {
       this.log('info', 'Not auth, returning true')
@@ -51,17 +119,16 @@ class TemplateContentScript extends ContentScript {
     this.log('info', 'Seems like already logged, logging out')
     await this.clickAndWait(
       'input[value="Déconnexion"]',
-      '#loginBoxform_identification'
+      'a[href="/home/connexion-espace-client/locedvv.html"]'
     )
     return true
   }
 
   async authWithCredentials(credentials) {
     this.log('info', 'Starting authWithCredentials')
-    await this.waitForElementInWorker('.block-bottom-area')
+    await this.navigateToLoginForm()
     const isLogged = await this.runInWorker('checkIfLogged')
     if (isLogged) {
-      await this.runInWorker('click', 'a[href="/home/espace-client.html"]')
       await this.waitForElementInWorker(
         'a[href="/home/espace-client/vos-factures-et-correspondances.html"]'
       )
@@ -78,7 +145,7 @@ class TemplateContentScript extends ContentScript {
 
   async authWithoutCredentials() {
     this.log('info', 'Starting authWithoutCredentials')
-    await this.waitForElementInWorker('#veolia_username')
+    await this.navigateToLoginForm()
     await this.waitForUserAuthentication()
   }
 
@@ -87,6 +154,7 @@ class TemplateContentScript extends ContentScript {
     await this.setWorkerState({ visible: true })
     await this.runInWorkerUntilTrue({ method: 'waitForAuthenticated' })
     await this.setWorkerState({ visible: false })
+    await this.unblockWorkerInteractions()
   }
 
   async getUserDataFromWebsite() {
@@ -174,10 +242,10 @@ class TemplateContentScript extends ContentScript {
   async autoLogin(credentials) {
     this.log('info', 'Starting autologin')
     const selectors = {
-      email: '#veolia_username',
-      password: '#veolia_password',
-      loginForm: '#loginBoxform_identification',
-      loginButton: 'input[value="OK"]',
+      email: '#identifiant',
+      password: '#mot_passe',
+      loginForm: '#connexionForm',
+      loginButton: 'input[value="Me connecter"]',
       captchaButton: '.frc-button'
     }
     await this.waitForElementInWorker(selectors.captchaButton)
@@ -199,23 +267,6 @@ class TemplateContentScript extends ContentScript {
   async checkAuthenticated() {
     this.log('info', 'Starting checkAuthenticated')
     this.log('info', `checkAuthenticated - location : ${window.location.href}`)
-    const loginField = document.querySelector('#veolia_username')
-    const passwordField = document.querySelector('#veolia_password')
-    if (
-      loginField &&
-      passwordField &&
-      loginField.value !== 'Votre adresse mail' &&
-      passwordField.value !== 'Identifiant'
-    ) {
-      const userCredentials = await this.findAndSendCredentials.bind(this)(
-        loginField,
-        passwordField
-      )
-      this.log('info', 'Sendin userCredentials to Pilot')
-      this.sendToPilot({
-        userCredentials
-      })
-    }
     if (
       document.location.href.includes(`${HOMEPAGE_URL}`) &&
       document.querySelector('.block-deconnecte')
@@ -227,26 +278,19 @@ class TemplateContentScript extends ContentScript {
       this.log('info', 'Detect active session')
       return true
     }
+    if (document.querySelector('a[href*="/home/connexion-espace-client"]')) {
+      this.log('info', 'loginFormButton detected, not connected')
+      return false
+    }
     this.log('info', 'Not respecting condition, returning false')
     return false
   }
 
-  async findAndSendCredentials(login, password) {
-    this.log('info', 'Starting findAndSendCredentials')
-    let userLogin = login.value
-    let userPassword = password.value
-    const userCredentials = {
-      login: userLogin,
-      password: userPassword
-    }
-    return userCredentials
-  }
-
   checkIfLogged() {
     this.log('info', 'Starting checkIfLogged')
-    const loginForm = document.querySelector('#loginBoxform_identification')
+    const loginEmailInput = document.querySelector('#identifiant')
     const logoutButton = document.querySelector('.block-deconnecte')
-    if (loginForm) {
+    if (loginEmailInput) {
       this.log('info', 'Login form detected, new auth needed')
       return false
     }
@@ -260,9 +304,10 @@ class TemplateContentScript extends ContentScript {
     this.log('info', 'Starting handleForm')
     const loginElement = document.querySelector(loginData.selectors.email)
     const passwordElement = document.querySelector(loginData.selectors.password)
-    const captchaButton = document.querySelector(
+    // Same here, second one is the one needed
+    const captchaButton = document.querySelectorAll(
       loginData.selectors.captchaButton
-    )
+    )[1]
     loginElement.value = loginData.credentials.login
     passwordElement.value = loginData.credentials.password
     captchaButton.click()
@@ -270,19 +315,31 @@ class TemplateContentScript extends ContentScript {
 
   async checkRecaptcha(selectors) {
     this.log('info', 'Starting checkRecaptcha')
-    let captchaValue = document.querySelector(
-      'input[name="frc-captcha-solution"]'
-    ).value
-    if (captchaValue.length < 100) {
-      this.log('info', 'Recaptcha is not finished')
-      return false
-    } else {
-      const submitButton = document
-        .querySelector(selectors.loginForm)
-        .querySelector(selectors.loginButton)
-      submitButton.click()
-      return true
-    }
+    await waitFor(
+      () => {
+        // Changes on the website force us to reach the loginForm page to login instead of staying on homePage
+        // On the loginPage there are 2 form, one on top of the page in the header, the other in the middle-right.
+        // The second being the most obvious for a user IMO, so wee need to get the SECOND element to get the good awaited captcha
+        let captchaValue = document.querySelectorAll(
+          'input[name="frc-captcha-solution"]'
+        )[1].value
+        if (captchaValue.startsWith('.')) {
+          this.log('info', 'Recaptcha is not finished')
+          return false
+        } else {
+          const submitButton = document
+            .querySelector(selectors.loginForm)
+            .querySelector(selectors.loginButton)
+          submitButton.click()
+          return true
+        }
+      },
+      {
+        interval: 1000,
+        timeout: 30 * 1000
+      }
+    )
+    return true
   }
 
   async getUserPersonalInfos() {
@@ -458,10 +515,10 @@ class TemplateContentScript extends ContentScript {
       fileAttributes: {
         metadata: {
           contentAuthor: 'veolia eau',
-          datetime: new Date(date),
+          datetime: new Date(),
           datetimeLabel: 'issueDate',
           isSubscription: true,
-          issueDate: new Date(),
+          issueDate: new Date(date),
           carbonCopy: true
         }
       }
