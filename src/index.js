@@ -12,11 +12,66 @@ const HOMEPAGE_URL =
   'https://www.service.eau.veolia.fr/home/espace-client.html#inside-space'
 
 class TemplateContentScript extends ContentScript {
+  onWorkerReady() {
+    if (
+      document.readyState === 'complete' ||
+      document.readyState === 'loaded'
+    ) {
+      this.setListeners()
+    } else {
+      window.addEventListener('DOMContentLoaded', () => {
+        this.setListeners()
+      })
+    }
+  }
+
+  onWorkerEvent({ event, payload }) {
+    this.log('info', 'onWorkerEvent starts')
+    if (event === 'loginSubmit') {
+      this.log('info', 'received loginSubmit, blocking user interactions')
+      this.blockWorkerInteractions()
+      const { login, password } = payload || {}
+      if (login && password) {
+        this.store.userCredentials = { login, password }
+      }
+    }
+  }
+
+  setListeners() {
+    this.log('debug', '📍️ setListeners starts')
+    const selectors = {
+      email: '#identifiant',
+      password: '#mot_passe',
+      loginForm: '#connexionForm',
+      loginButton: 'input[value="Me connecter"]',
+      captchaButton: '.frc-button'
+    }
+    const form = document.querySelector(selectors.loginForm)
+    if (form) {
+      const passwordField = document.querySelector(selectors.password)
+      const loginField = document.querySelector(selectors.email)
+      const submitButton = document.querySelector(selectors.loginButton)
+      if (submitButton) {
+        submitButton.addEventListener('click', () => {
+          this.log('info', 'Button click - emitting credentials')
+          const password = passwordField?.value
+          const login = loginField?.value
+          if (password && login) {
+            this.bridge.emit('workerEvent', {
+              event: 'loginSubmit',
+              payload: { login, password }
+            })
+          }
+        })
+      }
+    }
+  }
   // ////////
   // PILOT //
   // ////////
   async ensureAuthenticated({ account }) {
     this.log('info', 'Starting ensureAuthenticated')
+    this.bridge.addEventListener('workerEvent', this.onWorkerEvent.bind(this))
     const credentials = await this.getCredentials()
     if (!account || !credentials) {
       await this.ensureNotAuthenticated()
@@ -34,10 +89,12 @@ class TemplateContentScript extends ContentScript {
       if (credentials) {
         this.log('info', 'ensureAuthenticated - got credentials')
         await this.authWithCredentials(credentials)
+        this.unblockWorkerInteractions()
         return true
       }
       this.log('info', 'ensureAuthenticated - No credentials found')
       await this.authWithoutCredentials()
+      this.unblockWorkerInteractions()
     }
     return true
   }
@@ -97,6 +154,7 @@ class TemplateContentScript extends ContentScript {
     await this.setWorkerState({ visible: true })
     await this.runInWorkerUntilTrue({ method: 'waitForAuthenticated' })
     await this.setWorkerState({ visible: false })
+    await this.unblockWorkerInteractions()
   }
 
   async getUserDataFromWebsite() {
@@ -209,23 +267,6 @@ class TemplateContentScript extends ContentScript {
   async checkAuthenticated() {
     this.log('info', 'Starting checkAuthenticated')
     this.log('info', `checkAuthenticated - location : ${window.location.href}`)
-    const loginField = document.querySelector('#identifiant')
-    const passwordField = document.querySelector('#mot_passe')
-    if (
-      loginField &&
-      passwordField &&
-      loginField.value !== 'Votre adresse mail' &&
-      passwordField.value !== 'Identifiant'
-    ) {
-      const userCredentials = await this.findAndSendCredentials.bind(this)(
-        loginField,
-        passwordField
-      )
-      this.log('info', 'Sendin userCredentials to Pilot')
-      this.sendToPilot({
-        userCredentials
-      })
-    }
     if (
       document.location.href.includes(`${HOMEPAGE_URL}`) &&
       document.querySelector('.block-deconnecte')
@@ -243,17 +284,6 @@ class TemplateContentScript extends ContentScript {
     }
     this.log('info', 'Not respecting condition, returning false')
     return false
-  }
-
-  async findAndSendCredentials(login, password) {
-    this.log('info', 'Starting findAndSendCredentials')
-    let userLogin = login.value
-    let userPassword = password.value
-    const userCredentials = {
-      login: userLogin,
-      password: userPassword
-    }
-    return userCredentials
   }
 
   checkIfLogged() {
