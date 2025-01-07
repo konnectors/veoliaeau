@@ -6067,9 +6067,9 @@ class TemplateContentScript extends cozy_clisk_dist_contentscript__WEBPACK_IMPOR
     const loginElement = document.querySelector(loginData.selectors.email)
     const passwordElement = document.querySelector(loginData.selectors.password)
     // Same here, second one is the one needed
-    const captchaButton = document.querySelectorAll(
+    const captchaButton = document.querySelector(
       loginData.selectors.captchaButton
-    )[1]
+    )
     loginElement.value = loginData.credentials.login
     passwordElement.value = loginData.credentials.password
     captchaButton.click()
@@ -6079,12 +6079,10 @@ class TemplateContentScript extends cozy_clisk_dist_contentscript__WEBPACK_IMPOR
     this.log('info', 'Starting checkRecaptcha')
     await (0,p_wait_for__WEBPACK_IMPORTED_MODULE_2__["default"])(
       () => {
-        // Changes on the website force us to reach the loginForm page to login instead of staying on homePage
-        // On the loginPage there are 2 form, one on top of the page in the header, the other in the middle-right.
-        // The second being the most obvious for a user IMO, so wee need to get the SECOND element to get the good awaited captcha
-        let captchaValue = document.querySelectorAll(
+        // Looks like they finally removed the other captcha
+        let captchaValue = document.querySelector(
           'input[name="frc-captcha-solution"]'
-        )[1].value
+        ).value
         if (captchaValue.startsWith('.')) {
           this.log('info', 'Recaptcha is not finished')
           return false
