@@ -434,14 +434,26 @@ class TemplateContentScript extends ContentScript {
 
   async checkBillsTableLength() {
     this.log('info', 'Starting checkBillsTableLength')
-    // As the website load another page with a different url, but with the same composition
-    // the only way other than waiting for a selector to find out when the page is ready
-    // is to check if the table length had increase above the last four bills/notice loaded on previous landing.
-    const tableLength = document.querySelector('tbody').children.length
-    if (tableLength > 4) {
-      return true
-    }
-    return false
+    await waitFor(
+      () => {
+        // As the website load another page with a different url, but with the same composition
+        // the only way other than waiting for a selector to find out when the page is ready
+        // is to check if the table length had increase above the last four bills/notice loaded on previous landing.
+        const tableLength = document.querySelector('tbody').children.length
+        if (tableLength > 4) {
+          return true
+        }
+        return false
+      },
+      {
+        interval: 1000,
+        timeout: {
+          milliseconds: 30000,
+          message: new TimeoutError(`checkBillsPage timed out after 30000ms`)
+        }
+      }
+    )
+    return true
   }
 
   async getDocuments() {
